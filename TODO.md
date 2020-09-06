@@ -1,4 +1,8 @@
 Manipulations and integration functions:
+ - Initialization of empty spectrum with expected SFS of deletions with given
+   selection coefficient (integrate exact formulae)
+ - Caching of equilibrium spectra
+ - Profiling - should other items be cached? jackknife, e.g.?
  - Projection of full spectrum
  - Projection of 
  - Indexing of spectra, so T[0] gives you T[:, 0], T[1] gives T[:, 1], etc
