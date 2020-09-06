@@ -6,7 +6,6 @@ Requires:
  - numpy
  - scipy
  - attrs
- - copy
 
 Plotting features require:
  - matplotlib
