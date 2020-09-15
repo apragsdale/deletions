@@ -130,6 +130,7 @@ class DelSpectrum:
         h_del=0.5,
         dt=0.001,
         mutation_model="ISM",
+        polarized=False,
     ):
         """
         Integrate the deletion frequency spectrum forward in time.
@@ -158,6 +159,7 @@ class DelSpectrum:
             s_del=s_del,
             h_del=h_del,
             mutation_model=mutation_model,
+            polarized=polarized,
         )
 
         if mutation_model == "ISM":
@@ -172,7 +174,27 @@ class DelSpectrum:
         elif n_proj > self.n:
             raise ValueError("projection size must be smaller than n")
 
-        # to do
+        data_proj = util.project(self.data, n_proj)
+        return DelSpectrum(data_proj)
+
+    def project_snps(self, n_proj):
+        """
+        Project slices for each deletion frequency down to the same size, n_proj.
+        Only the first self.n - n_proj slices are projected.
+
+        Returns a (self.n - n_proj) by n_proj array with project spectra.
+        """
+        if n_proj > self.n:
+            raise ValueError("projection size must be smaller than n")
+
+        proj_size = (self.n - n_proj + 1, n_proj + 1)
+        projected = np.empty(proj_size)
+        for i in range(self.n - n_proj + 1):
+            projected[i] = util.project_1d(
+                self._as_masked_array().data[i][: self.n + 1 - i], n_proj
+            )
+
+        return projected
 
     def marginalize(self, axis):
         """

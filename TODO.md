@@ -1,12 +1,9 @@
 Manipulations and integration functions:
  - Caching of equilibrium spectra
- - Profiling - should other items be cached? jackknife, e.g.?
- - Projection of full spectrum
- - Projection of marginal spectra for given deletion frequency
+ - Caching of Jackknife matrix
  - Indexing of spectra, so T[0] gives you T[:, 0], T[1] gives T[:, 1], etc
  - Folding A/a
- - Loci fixed for A get mapped to ancestral, as an option, so that SFS is not
-   symmetric
+ - Arithmetic on T, so we can do sum(T) instead of sum(T.data)
 
 Plotting and examples:
  - Plotting of T[:, j], for j deletions

@@ -13,8 +13,9 @@ import scipy.special as scisp
 from mpmath import hyp1f1
 
 import copy
-
+import pickle
 import numpy as np
+import os
 
 
 def integrate_crank_nicolson(
@@ -27,6 +28,7 @@ def integrate_crank_nicolson(
     s_del=None,
     h_del=0.5,
     mutation_model="ISM",
+    polarized="False",
 ):
     """
     Integrate the frequency spectrum using the Crank-Nicolson scheme:
@@ -62,7 +64,7 @@ def integrate_crank_nicolson(
                 theta_del=theta_del,
                 theta_snp=theta_snp,
                 s_del=s_del,
-                h_del=h_del
+                h_del=h_del,
             )
     else:
         raise ValueError("mutation model must be ISM or recurrent or reversible")
@@ -119,7 +121,11 @@ def integrate_crank_nicolson(
             data = Ab_bwd(Ab_fwd.dot(data) + dt * null_factor * U_null)
         else:
             data = Ab_bwd(Ab_fwd.dot(data))
-            assert np.isclose(data.sum(), 1)
+
+        if polarized is True and mutation_model is not "ISM":
+            for j in range(X.n):
+                data[util.get_idx(X.n, 0, j)] += data[util.get_idx(X.n, X.n - j, j)]
+                data[util.get_idx(X.n, X.n - j, j)] = 0
 
         N0_prev = N0
         N1_prev = N1
@@ -158,7 +164,7 @@ def equilibrium_biallelic(n, gamma, h, mutation_model, theta):
         else:
             theta_fd, theta_bd = theta
         fs = np.zeros(n + 1)
-        if gamma == 0.0:
+        if gamma is None or gamma == 0.0:
             for i in range(n + 1):
                 fs[i] = (
                     scisp.gammaln(n + 1)
@@ -426,6 +432,22 @@ def selection_matrix(n, s_del, h_del):
 ####
 
 
+# Cache jackknife matrices in ~/.moments/TwoLocus_cache by default
+def set_cache_path(path="~/.deletions/jackknife_cache"):
+    """
+    Set directory in which jackknife matrices are cached, so they do not
+    need to be recomputed each time.
+    """
+    global cache_path
+    cache_path = os.path.expanduser(path)
+    if not os.path.isdir(cache_path):
+        os.makedirs(cache_path)
+
+
+cache_path = None
+set_cache_path()
+
+
 def closest_ij_2(i, j, n):
     # sort by closest to farthest
     # I think we will need to have a spread of three grid points in each direction - a rectangular box leads to an A matrix with rank < 6
@@ -514,6 +536,16 @@ def get_alphas_1D(ii, i, n):
 # compute the quadratic two-dim Jackknife extrapolation for Phi_n to Phi_{n+2}
 # i,j are the indices in the n+1 spectrum (just for interior points)
 def calcJK_2(n):
+    # check if cached, if so just load it
+    jackknife_fname = f"jk_{n}_2.mtx"
+    if os.path.isfile(os.path.join(cache_path, jackknife_fname)):
+        with open(os.path.join(cache_path, jackknife_fname), "rb") as fin:
+            try:
+                J = pickle.load(fin)
+            except:
+                J = pickle.load(fin, encoding="Latin1")
+        return J
+
     # size of J is size of n+1 spectrum x size of n spectrum
     # J = np.zeros(((n+3)*(n+4)/2,(n+1)*(n+2)/2))
     row = []
@@ -586,7 +618,12 @@ def calcJK_2(n):
         col.append(util.get_idx(n, ii + 1, n - ii - 1))
         data.append(alphas[2])
 
-    return csr_matrix(
+    J = csr_matrix(
         (data, (row, col)),
         shape=(int((n + 3) * (n + 4) / 2), int((n + 1) * (n + 2) / 2)),
     )
+    # cache J
+    with open(os.path.join(cache_path, jackknife_fname), "wb+") as fout:
+        pickle.dump(J, fout, pickle.HIGHEST_PROTOCOL)
+
+    return J
