@@ -5,7 +5,3 @@ Manipulations and integration functions:
  - Folding A/a
  - Arithmetic on T, so we can do sum(T) instead of sum(T.data)
 
-Plotting and examples:
- - Plotting of T[:, j], for j deletions
- - Comparison across different deletion frequencies for segregating SNPs
-
