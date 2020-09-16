@@ -28,7 +28,7 @@ def integrate_crank_nicolson(
     s_del=None,
     h_del=0.5,
     mutation_model="ISM",
-    polarized="False",
+    polarized=False,
 ):
     """
     Integrate the frequency spectrum using the Crank-Nicolson scheme:
@@ -65,6 +65,7 @@ def integrate_crank_nicolson(
                 theta_snp=theta_snp,
                 s_del=s_del,
                 h_del=h_del,
+                polarized=polarized,
             )
     else:
         raise ValueError("mutation model must be ISM or recurrent or reversible")
