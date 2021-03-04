@@ -1,14 +1,13 @@
 # Functions for initializing and integrating the deletion frequency
 # spectrum forward in time.
-#
-
 
 from . import util
 
 from scipy.sparse.linalg import factorized
 from scipy.sparse import identity
 from scipy.special import gammaln
-from scipy.sparse import csc_matrix, csr_matrix
+from scipy.sparse.linalg import csc_matrix, csr_matrix
+from scipy.sparse.linalg import spsolve
 import scipy.special as scisp
 from mpmath import hyp1f1
 
@@ -22,9 +21,9 @@ def integrate_crank_nicolson(
     X,
     nu,
     t,
-    dt=0.001,
-    theta_snp=0.001,
-    theta_del=0.001,
+    dt=0.01,
+    theta_snp=1,
+    theta_del=1,
     s_del=None,
     h_del=0.5,
     mutation_model="ISM",
@@ -38,7 +37,10 @@ def integrate_crank_nicolson(
         migration rate model with the given scalar values.
     """
     if mutation_model == "ISM":
-        if not (isinstance(theta_snp, float) and isinstance(theta_del, float)):
+        if not (
+            (isinstance(theta_snp, float) or isinstance(theta_snp, int))
+            and (isinstance(theta_del, float) or isinstance(theta_del, int))
+        ):
             raise ValueError("thetas must be scalar floats if mutation model is ISM")
     elif mutation_model == "recurrent" or mutation_model == "reversible":
         if not isinstance(theta_snp, list):
@@ -85,7 +87,7 @@ def integrate_crank_nicolson(
     N0_prev = 0
     N1_prev = 0
 
-    D = drift_matrix(X.n)
+    D = drift_matrix(X.n, mutation_model=mutation_model)
     if mutation_model == "ISM":
         U, U_null = mutation_matrix_ism(X.n, theta_snp, theta_del)
     else:
@@ -108,8 +110,8 @@ def integrate_crank_nicolson(
             N1 = nu(t_elapsed + dt)
 
         if t_elapsed == 0 or N0_prev != N0 or N1_prev != N1 or dt != dt_prev:
-            Ab0 = U + D / (2 * N0)
-            Ab1 = U + D / (2 * N1)
+            Ab0 = D / (2 * N0) + U
+            Ab1 = D / (2 * N1) + U
             if s_del is not None:
                 Ab0 += S.dot(J)
                 Ab1 += S.dot(J)
@@ -118,12 +120,13 @@ def integrate_crank_nicolson(
 
         # ensure that the total mutation rate stays constant at theta
         if mutation_model == "ISM":
-            null_factor = _get_null_factor(data, X.n)
-            data = Ab_bwd(Ab_fwd.dot(data) + dt * null_factor * U_null)
+            # null_factor = _get_null_factor(data, X.n)
+            # data = Ab_bwd(Ab_fwd.dot(data) + dt * null_factor * U_null)
+            data = Ab_bwd(Ab_fwd.dot(data) + dt * U_null)
         else:
             data = Ab_bwd(Ab_fwd.dot(data))
 
-        if polarized is True and mutation_model is not "ISM":
+        if polarized is True and mutation_model != "ISM":
             for j in range(X.n):
                 data[util.get_idx(X.n, 0, j)] += data[util.get_idx(X.n, X.n - j, j)]
                 data[util.get_idx(X.n, X.n - j, j)] = 0
@@ -138,6 +141,43 @@ def integrate_crank_nicolson(
 
     return data
 
+
+####
+# Equilibrium deletion spectrum using scipy sparse solver
+####
+
+
+def delete_rows_cols(A, b, indices):
+    if A.shape[0] != A.shape[1]:
+        raise ValueError("only apply to square matrix")
+    if A.shape[0] != len(b):
+        raise ValueError("dimension mismatch")
+    indices = list(indices)
+    mask = np.ones(A.shape[0], dtype=bool)
+    mask[indices] = False
+    remaining = np.arange(len(mask)).compress(mask)
+    return A[mask][:, mask], b.compress(mask), remaining
+
+
+def equilibrium(n, theta_snp=1, theta_del=1, gamma_del=0, h_del=0.5, mutation_model="ISM"):
+    """
+    Returns the data array for the equilibrium spectrum for sample size n.
+    """
+    if mutation_model != "ISM":
+        raise ValueError("Only available for ISM model")
+    if gamma_del != 0:
+        raise ValueError("not implemented with selection at this point")
+
+    D = drift_matrix(n, mutation_model=mutation_model)
+    U, U_null = mutation_matrix_ism(n, theta_snp, theta_del)
+    to_del = [util.get_idx(n, 0, 0), util.get_idx(n, 0, n), util.get_idx(n, n, 0)]
+    Ab = U + D / 2
+    A, b, indices = delete_rows_cols(Ab, U_null, to_del)
+    sts = spsolve(A, -b)
+    sts_full = np.zeros(Ab.shape[0])
+    sts_full[indices] = sts
+    return sts_full
+    
 
 ####
 # Equilibrium frequency spectrum for selected sites with h=0.5
@@ -222,7 +262,7 @@ def initialize_del_spectrum(n, gamma, h, mutation_model, theta):
 ####
 
 
-def drift_matrix(n):
+def drift_matrix(n, mutation_model="ISM"):
     D = np.zeros(((n + 1) * (n + 2) // 2,) * 2)
     for i in range(n + 1):
         for j in range(n + 1 - i):
@@ -231,21 +271,27 @@ def drift_matrix(n):
             if i < n and i + j + 1 <= n:
                 D[util.get_idx(n, i + 1, j), this_idx] += (n - i - j) * i
             if i > 0:
-                D[util.get_idx(n, i - 1, j), this_idx] += (n - i - j) * i
+                if not (i - 1 == 0 and mutation_model == "ISM"):
+                    D[util.get_idx(n, i - 1, j), this_idx] += (n - i - j) * i
             if j < n and i + j + 1 <= n:
                 D[util.get_idx(n, i, j + 1), this_idx] += (n - i - j) * j
             if j > 0:
-                D[util.get_idx(n, i, j - 1), this_idx] += (n - i - j) * j
+                if not (j - 1 == 0 and mutation_model == "ISM"):
+                    D[util.get_idx(n, i, j - 1), this_idx] += (n - i - j) * j
             if i < n and j > 0:
-                D[util.get_idx(n, i + 1, j - 1), this_idx] += i * j
+                if not (j - 1 == 0 and mutation_model == "ISM"):
+                    D[util.get_idx(n, i + 1, j - 1), this_idx] += i * j
             if i > 0 and j < n:
-                D[util.get_idx(n, i - 1, j + 1), this_idx] += i * j
+                if not (i - 1 == 0 and mutation_model == "ISM"):
+                    D[util.get_idx(n, i - 1, j + 1), this_idx] += i * j
     return csc_matrix(D)
 
 
 def mutation_matrix_ism(n, theta_snp, theta_del):
     """
-    Mutations handled in a pseudo-ISM framework.
+    U_null are new mutations at invariant sites for new deletions or new snps.
+    U mutations new deletions or new snps against the background of snps or
+    deletions, resp.
     """
     # mutations from the void
     U_null = np.zeros((n + 1) * (n + 2) // 2)
@@ -256,18 +302,13 @@ def mutation_matrix_ism(n, theta_snp, theta_del):
     # mutations a->A on Phi(0, j), with j deletions
     for j in range(1, n):
         U[util.get_idx(n, 1, j), util.get_idx(n, 0, j)] += (n - j) * theta_snp / 2
-        U[util.get_idx(n, 0, j), util.get_idx(n, 0, j)] -= (n - j) * theta_snp / 2
     # mutations A/a->del on Phi(i, 0), with i copies of A
     for i in range(1, n):
         # del hits a (retain i copies of A)
         U[util.get_idx(n, i, 1), util.get_idx(n, i, 0)] += (n - i) * theta_del / 2
-        U[util.get_idx(n, i, 0), util.get_idx(n, i, 0)] -= (n - i) * theta_del / 2
-    for i in range(n - 1):
+    for i in range(1, n - 1):
         # del hits A
         U[util.get_idx(n, i, 1), util.get_idx(n, i + 1, 0)] += (i + 1) * theta_del / 2
-        U[util.get_idx(n, i + 1, 0), util.get_idx(n, i + 1, 0)] -= (
-            (i + 1) * theta_del / 2
-        )
     return csc_matrix(U), U_null
 
 

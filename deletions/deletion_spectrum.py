@@ -124,8 +124,8 @@ class DelSpectrum:
         self,
         nu,
         t,
-        theta_snp=0.001,
-        theta_del=0.001,
+        theta_snp=1,
+        theta_del=1,
         s_del=None,
         h_del=0.5,
         dt=0.001,
@@ -164,9 +164,9 @@ class DelSpectrum:
 
         if mutation_model == "ISM":
             # mask corners
-            self.mask[util.util(self.n, 0, 0)] = True
-            self.mask[util.util(self.n, 0, self.n)] = True
-            self.mask[util.util(self.n, self.n, 0)] = True
+            self.mask[util.get_idx(self.n, 0, 0)] = True
+            self.mask[util.get_idx(self.n, 0, self.n)] = True
+            self.mask[util.get_idx(self.n, self.n, 0)] = True
 
     def project(self, n_proj):
         if n_proj == self.n:
